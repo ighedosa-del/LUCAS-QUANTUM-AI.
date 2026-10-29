@@ -162,3 +162,8 @@ def auto_start(x_paper_token: str | None = Header(default=None)):
 def auto_stop(x_paper_token: str | None = Header(default=None)):
     paper_auth(x_paper_token)
     return auto.set_running(False)
+
+
+@app.get('/api/auto/activity')
+def auto_activity(limit: int = 50):
+    return {"events": auto.activity(limit), "mode": "PAPER_ONLY"}

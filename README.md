@@ -25,3 +25,12 @@ Unzip into the **root** of your `LUCAS-QUANTUM-AI` GitHub repository (not a nest
 ## Tests
 
 `pytest -q`
+
+
+## V4 premium dashboard and explainable activity
+- Dark midnight / champagne-gold dashboard, with mobile-responsive decision log.
+- `GET /api/auto/activity?limit=40` returns up to 100 recent decisions, newest first.
+- Logs START, STOP, BUY, SELL, WAIT, HALT, and ERROR, with reason, SMA9, SMA21, RSI, market price, and whether a paper order executed.
+- Events are recorded only on each newly observed completed candle (or a control/error event), not every dashboard refresh.
+- History is stored in the existing SQLite paper database and is ephemeral on Render Free.
+- No live trading or authenticated Kraken credentials are needed.
