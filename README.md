@@ -16,3 +16,10 @@ The system follows public **pool-flow**, not a verified profitable trader. No So
 
 ## Deployment
 Extract into existing GitHub project and redeploy on Render. Retain `PAPER_ADMIN_TOKEN` and optionally `LUCAS_POOL_PAPER_COPY=1` to allow pool-flow **paper-only** ETH/USD trades. No private wallets or exchange keys. View Traders & Wallets for the expanded diagnostics.
+
+
+## V8.3 — Configurable pool-swap threshold
+
+The previous fixed $25,000 minimum is now configurable with `LUCAS_POOL_MIN_SWAP_USD` (default **5000**). The variable must be between **1000 and 1000000**; invalid settings are rejected rather than silently permitting unfiltered trades. The live `/api/copy/status` endpoint returns `minimum_swap_usd`, and Traders & Wallets shows the current minimum and below-threshold count. **No past swaps are back-traded or retroactively reclassified.** Previously skipped signals remain in the historical audit log.
+
+To deploy: replace your existing project files with this ZIP and redeploy. Keep `LUCAS_POOL_PAPER_COPY=1` for optional pool-flow PAPER orders; otherwise signals are only observed. You may optionally set `LUCAS_POOL_MIN_SWAP_USD=5000` in Render, but it is already the default. No wallets, API keys or private exchange credentials required. The 30-minute cooldown, 1% per-flow allocation, position checks, stop/target, 5% drawdown breaker, and paper-only broker remain unchanged. This is an **experimental threshold**, not an empirically optimized trading strategy. More signals can increase losses. A swap signal is not a verified profitable trader.
