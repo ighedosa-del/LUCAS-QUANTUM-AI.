@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 import numpy as np
 import pandas as pd
 from .core import Trader, select_traders, simulate
+from . import kraken
 
 app = FastAPI(title="CopyTrade Lab", version="0.1.0")
 BASE = Path(__file__).resolve().parent
@@ -86,3 +87,23 @@ def backtest(payload: BacktestRequest):
         return simulate(payload.prices, payload.signals)
     except (ValueError, KeyError, TypeError, OverflowError) as exc:
         raise HTTPException(422, str(exc))
+
+@app.get("/api/kraken/markets")
+def kraken_markets():
+    try:
+        return {"source":"Kraken public market API", "markets":kraken.prices(), "trader_identity_available":False}
+    except (OSError, ValueError, KeyError, TimeoutError) as exc:
+        raise HTTPException(503, "Kraken market feed temporarily unavailable") from exc
+
+@app.get("/api/kraken/candles")
+def kraken_candles(symbol: str = "BTC/USD", interval: int = 5):
+    try:
+        return {"source":"Kraken public OHLC", "symbol":symbol, "interval":interval, "candles":kraken.candles(symbol,interval)}
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except (OSError, KeyError, TimeoutError) as exc:
+        raise HTTPException(503,"Kraken OHLC feed temporarily unavailable") from exc
+
+@app.get("/api/discovery")
+def discovery():
+    return {"status":"awaiting_authorized_trader_source", "verified_traders":[], "selected_traders":[], "max_traders":5, "requirements":{"sharpe_90d_gt":1.5,"max_drawdown_7d_gte":-0.10,"max_absolute_correlation_lt":0.9}, "note":"Kraken public trades are anonymous and cannot be attributed to individual lead traders. No trader ranking or copy trading is claimed."}
