@@ -167,3 +167,14 @@ def auto_stop(x_paper_token: str | None = Header(default=None)):
 @app.get('/api/auto/activity')
 def auto_activity(limit: int = 50):
     return {"events": auto.activity(limit), "mode": "PAPER_ONLY"}
+
+# Read-only Ethereum and Solana monitoring, never live execution.
+from . import wallets
+@app.get('/api/wallets/status')
+def wallet_status():
+    return wallets.snapshot()
+
+@app.post('/api/wallets/refresh')
+def wallet_refresh(x_paper_token: str | None = Header(default=None)):
+    paper_auth(x_paper_token)
+    return {'checks':wallets.poll(),'status':wallets.snapshot()}

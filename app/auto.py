@@ -1,6 +1,6 @@
 """Autonomous virtual-only Kraken strategy; never submits exchange orders."""
 import os, sqlite3, threading, time, math
-from . import kraken, paper
+from . import kraken, paper, wallets
 
 INTERVAL_SECONDS = 65
 _lock = threading.RLock()
@@ -115,9 +115,14 @@ def tick():
                   position_open=has_position,executed=executed)
 
 def _loop():
+    last_wallet_poll=0
     while True:
         try:
-            if status()['running']:tick()
+            if status()['running']:
+                tick()
+                if time.time()-last_wallet_poll>=300:
+                    wallets.poll()
+                    last_wallet_poll=time.time()
         except Exception as exc:
             with paper.connection() as con:
                 con.execute('UPDATE bot_state SET last_action=?,last_reason=?,updated=? WHERE id=1',('ERROR',str(exc)[:200],time.time()))

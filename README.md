@@ -1,40 +1,29 @@
-# LUCAS Quantum AI — Autonomous Kraken Paper V3
+# LUCAS Quantum AI V6 — Ethereum & Solana Wallet Monitor
 
-A clean **champagne-gold / pearl-ivory** dashboard rebuilt using the uploaded luxury dashboard as a design reference, not its unverified prediction/"entanglement" scripts. Backend is the previous Kraken V2 FastAPI paper broker plus a new automated SMA strategy. **No private Kraken credentials and no real exchange order capability.**
+Extends the V5 black/gold dashboard and existing Kraken SMA/RSI autonomous paper bot. No live exchange execution.
 
-## Deploy to GitHub + Render
+## Included
+- Ethereum mainnet ERC-20 **transfer observations** from Routescan's keyless Etherscan-compatible API.
+- Solana confirmed transaction **signatures** using JSON-RPC `getSignaturesForAddress`.
+- SQLite event deduplication, per-wallet polling state, and transparent errors.
+- Background wallet polling every 5 minutes **while the existing paper bot is running**.
+- `GET /api/wallets/status`, authenticated `POST /api/wallets/refresh`.
+- Trader & Wallets dashboard displays configured addresses and actual observed events.
+- Preserves V5 Kraken paper strategy, activity history and START/STOP.
 
-Unzip into the **root** of your `LUCAS-QUANTUM-AI` GitHub repository (not a nested folder), commit to `main`, and deploy. Keep Render Python build `pip install -r requirements.txt` and start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Add a strong random `PAPER_ADMIN_TOKEN` environment variable in Render. Enter that token in the dashboard and press **START BOT**. Never paste secrets into ChatGPT or commit them to GitHub.
+## Render configuration
+1. Replace your GitHub project with these files, commit and redeploy.
+2. Keep `PAPER_ADMIN_TOKEN` set.
+3. Optional: set `LUCAS_WATCH_WALLETS` to comma-separated public addresses, e.g. `ethereum:0xYOUR40HEXADDRESS,solana:YOURPUBLICBASE58ADDRESS`. These are watch addresses, **not** private keys.
+4. Optional: set `SOLANA_RPC_URL` to a trusted dedicated RPC URL for reliable monitoring. Never place secrets in the frontend or GitHub.
+5. Press START. Monitoring runs only while the instance and paper bot are running.
 
-## What it actually does
+## Scope and limits
+**This is a real read-only data integration, not a verified wallet copy-trading engine.** It does not automatically discover profitable traders, reconstruct DEX swaps, compute trustworthy wallet returns, or place paper-copy orders. Ethereum ERC-20 transfers are not equivalent to trades; Solana signatures do not reveal token swaps without further transaction parsing. No false signals, returns or rankings are generated. A future release needs historical DEX indexing, token mapping, fee/slippage reconstruction and forward validation before automatic wallet-copy execution.
 
-- Polls Kraken public BTC/USD 5-minute OHLC and ticker. Uses **completed** bars only.
-- Detects SMA(9)/SMA(21) crossover; buys only if RSI(14) < 70; exits on bearish crossover or 2% stop / 4% target.
-- Virtual cash starts at $10,000, max 2% paper equity per entry, 0.1% simulated fees, no leverage or shorting.
-- Stores paper trades and run state in SQLite. Tracks observed paper-equity peak and halts if drawdown reaches 5%. Not a guaranteed daily loss limit or continuous stop.
-- Does not copy real traders. Does not promise profit. Price data is real; execution and portfolio are simulated.
+Public Solana RPC is rate-limited and unsuitable for reliable 24/7 monitoring; Render Free may sleep and its local SQLite storage is ephemeral. Use a persistent disk/DB and always-on instance for continuous operation.
 
-## Limitations
-
-- Render Free can sleep, so the strategy will **not** run continuously. A continuously running paid worker or always-on server is required for reliable automation.
-- `/tmp` SQLite database is **ephemeral** on Render Free; redeploy/restart can erase paper account and bot state. Use persistent disk / managed DB for durable results.
-- Single-process worker intended for one Uvicorn worker. Multiple app replicas/workers would run competing polling loops; don't scale horizontally without a distributed lock.
-- Market polling and stop checks happen about every 65 seconds when awake; orders may slip past trigger prices. No spread/slippage modeling beyond 0.1% fees.
-- UI displays only data returned by API, not fictional traders or synthetic profits.
-
-## Tests
-
-`pytest -q`
-
-
-## V4 premium dashboard and explainable activity
-- Dark midnight / champagne-gold dashboard, with mobile-responsive decision log.
-- `GET /api/auto/activity?limit=40` returns up to 100 recent decisions, newest first.
-- Logs START, STOP, BUY, SELL, WAIT, HALT, and ERROR, with reason, SMA9, SMA21, RSI, market price, and whether a paper order executed.
-- Events are recorded only on each newly observed completed candle (or a control/error event), not every dashboard refresh.
-- History is stored in the existing SQLite paper database and is ephemeral on Render Free.
-- No live trading or authenticated Kraken credentials are needed.
-
-
-## V5 Cinematic Dashboard
-The UI has been redesigned to match the approved black/gold reference while retaining the V4 FastAPI Kraken paper engine and decision log. All displayed P&L, positions, trades and market prices come from existing APIs. Ethereum/Solana wallet tracking and verified trader ranking are explicitly marked NOT CONNECTED; no fabricated trader returns, signals or backtests. Deploy the repository files to GitHub/Render using the existing render.yaml and PAPER_ADMIN_TOKEN. On Render Free, sleep and ephemeral SQLite storage can interrupt or reset automation.
+## Run
+`pip install -r requirements.txt`
+`uvicorn app.main:app --host 0.0.0.0 --port 8000`
+`python -m pytest -q`
