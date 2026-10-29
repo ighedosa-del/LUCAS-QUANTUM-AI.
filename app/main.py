@@ -178,3 +178,14 @@ def wallet_status():
 def wallet_refresh(x_paper_token: str | None = Header(default=None)):
     paper_auth(x_paper_token)
     return {'checks':wallets.poll(),'status':wallets.snapshot()}
+
+# Public-chain discovery: research only, not verified trader ranking or execution.
+from . import discovery
+@app.get('/api/discovery/v7')
+def discovery_v7():
+    return discovery.snapshot()
+
+@app.post('/api/discovery/v7/refresh')
+def discovery_refresh(x_paper_token: str | None = Header(default=None)):
+    paper_auth(x_paper_token)
+    return {'checks':discovery.poll(),'status':discovery.snapshot()}
