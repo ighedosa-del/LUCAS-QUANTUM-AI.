@@ -189,3 +189,13 @@ def discovery_v7():
 def discovery_refresh(x_paper_token: str | None = Header(default=None)):
     paper_auth(x_paper_token)
     return {'checks':discovery.poll(),'status':discovery.snapshot()}
+
+# Observed Ethereum DEX pool swaps and optional PAPER-ONLY flow strategy.
+from . import copy_engine
+@app.get('/api/copy/status')
+def copy_status():
+    return copy_engine.snapshot()
+@app.post('/api/copy/refresh')
+def copy_refresh(x_paper_token: str | None = Header(default=None)):
+    paper_auth(x_paper_token)
+    return copy_engine.poll()
