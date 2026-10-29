@@ -34,3 +34,7 @@ Unzip into the **root** of your `LUCAS-QUANTUM-AI` GitHub repository (not a nest
 - Events are recorded only on each newly observed completed candle (or a control/error event), not every dashboard refresh.
 - History is stored in the existing SQLite paper database and is ephemeral on Render Free.
 - No live trading or authenticated Kraken credentials are needed.
+
+
+## V5 Cinematic Dashboard
+The UI has been redesigned to match the approved black/gold reference while retaining the V4 FastAPI Kraken paper engine and decision log. All displayed P&L, positions, trades and market prices come from existing APIs. Ethereum/Solana wallet tracking and verified trader ranking are explicitly marked NOT CONNECTED; no fabricated trader returns, signals or backtests. Deploy the repository files to GitHub/Render using the existing render.yaml and PAPER_ADMIN_TOKEN. On Render Free, sleep and ephemeral SQLite storage can interrupt or reset automation.
