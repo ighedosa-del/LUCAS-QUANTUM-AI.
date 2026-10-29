@@ -1,67 +1,27 @@
-# CopyTrade Lab — Render-ready paper-trading dashboard
+# LUCAS Quantum AI — Autonomous Kraken Paper V3
 
-A **deployable research/demo application** with FastAPI, a responsive dashboard, synthetic strategy ranking, a next-bar long-only backtester, and authenticated webhook ingestion.
+A clean **champagne-gold / pearl-ivory** dashboard rebuilt using the uploaded luxury dashboard as a design reference, not its unverified prediction/"entanglement" scripts. Backend is the previous Kraken V2 FastAPI paper broker plus a new automated SMA strategy. **No private Kraken credentials and no real exchange order capability.**
 
-> **NO LIVE TRADING.** No exchange orders are sent. All dashboard performance is synthetic. This is not financial advice.
+## Deploy to GitHub + Render
 
-## Deploy to Render from GitHub
+Unzip into the **root** of your `LUCAS-QUANTUM-AI` GitHub repository (not a nested folder), commit to `main`, and deploy. Keep Render Python build `pip install -r requirements.txt` and start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Add a strong random `PAPER_ADMIN_TOKEN` environment variable in Render. Enter that token in the dashboard and press **START BOT**. Never paste secrets into ChatGPT or commit them to GitHub.
 
-1. Download and extract the ZIP. Open the extracted `copytrade-render-bot` folder.
-2. On GitHub choose **New repository**, then **uploading an existing file**. Drag **all files and folders inside** this folder into GitHub (including `render.yaml`), then commit. GitHub's browser uploader may require folder drag-and-drop; Git command line is more reliable for preserving nested directories.
-3. In Render, choose **New → Blueprint**, connect the GitHub repository, and apply `render.yaml`.
-4. Render will install Python requirements and run `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
-5. Open the generated Render URL. `/health` is the health endpoint; `/docs` is interactive API documentation.
+## What it actually does
 
-If Blueprint is unavailable, create a Render **Web Service** using the same build and start commands.
+- Polls Kraken public BTC/USD 5-minute OHLC and ticker. Uses **completed** bars only.
+- Detects SMA(9)/SMA(21) crossover; buys only if RSI(14) < 70; exits on bearish crossover or 2% stop / 4% target.
+- Virtual cash starts at $10,000, max 2% paper equity per entry, 0.1% simulated fees, no leverage or shorting.
+- Stores paper trades and run state in SQLite. Tracks observed paper-equity peak and halts if drawdown reaches 5%. Not a guaranteed daily loss limit or continuous stop.
+- Does not copy real traders. Does not promise profit. Price data is real; execution and portfolio are simulated.
 
-### Local run
+## Limitations
 
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
+- Render Free can sleep, so the strategy will **not** run continuously. A continuously running paid worker or always-on server is required for reliable automation.
+- `/tmp` SQLite database is **ephemeral** on Render Free; redeploy/restart can erase paper account and bot state. Use persistent disk / managed DB for durable results.
+- Single-process worker intended for one Uvicorn worker. Multiple app replicas/workers would run competing polling loops; don't scale horizontally without a distributed lock.
+- Market polling and stop checks happen about every 65 seconds when awake; orders may slip past trigger prices. No spread/slippage modeling beyond 0.1% fees.
+- UI displays only data returned by API, not fictional traders or synthetic profits.
 
-Open http://127.0.0.1:8000. Run tests with `pytest -q`.
+## Tests
 
-### Authenticated webhook
-
-Set `WEBHOOK_TOKEN` in Render environment variables (Blueprint generates one).
-Send a POST to `/api/webhook` with header `X-Webhook-Token: <your-secret>` and JSON:
-
-```json
-{
-  "signal_id": "unique-001",
-  "trader_id": "trader-A",
-  "symbol": "BTC/USD",
-  "direction": "BUY",
-  "size": 0.02,
-  "timestamp": "2026-10-29T20:16:00Z"
-}
-```
-
-Use the **current UTC timestamp**, not the example timestamp. The endpoint rejects signals older than 60 seconds and duplicates. This is not directly compatible with TradingView webhook headers; a signed relay or another authentication approach is needed for TradingView.
-
-### What is implemented
-
-- FastAPI backend, static dashboard, Render blueprint, health checks.
-- Authenticated, timestamp-validated, deduplicated signal intake (in memory).
-- Research selection using 90-day Sharpe > 1.5, 7-day drawdown ≥ -10%, absolute pairwise correlation < 0.9; higher volume wins conflicts.
-- Single-asset long-only paper backtest with next-bar orders, 2% cap, 0.1% fee and 0.05% slippage on each fill, equity curve, drawdown, closed-trade win rate.
-- Synthetic seeded demo data and API tests.
-
-### Not yet implemented (required before real money)
-
-- Authorized per-trader trade/equity data feeds, live Binance/Kraken market adapters.
-- Persisted signal/price/trade histories, durable idempotency, multi-worker coordination.
-- Multi-trader/multi-asset accounting, capital reservation, mark-to-market, funding/FX.
-- CCXT live executor, exchange precision, price-deviation checks, reconciliation, partial fills, retries, order cancelation and emergency kill switch.
-- Full portfolio walk-forward validation and operational monitoring.
-
-**Security:** Never commit exchange API secrets to GitHub. Render free instances may sleep and have ephemeral storage, so they are unsuitable for latency-sensitive or persistent live execution.
-
-## Luxury Quantum AI dashboard
-
-The dashboard now uses the approved black-and-gold luxury visual direction, with responsive navigation, gold equity curves, risk panels, strategy tables, and incoming signal monitoring. The visual design is **not evidence of AI predictions or live trading**. The demo figures remain synthetic.
+`pytest -q`

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 import numpy as np
 import pandas as pd
 from .core import Trader, select_traders, simulate
+from . import kraken
 
 app = FastAPI(title="CopyTrade Lab", version="0.1.0")
 BASE = Path(__file__).resolve().parent
@@ -86,3 +87,78 @@ def backtest(payload: BacktestRequest):
         return simulate(payload.prices, payload.signals)
     except (ValueError, KeyError, TypeError, OverflowError) as exc:
         raise HTTPException(422, str(exc))
+
+@app.get("/api/kraken/markets")
+def kraken_markets():
+    try:
+        return {"source":"Kraken public market API", "markets":kraken.prices(), "trader_identity_available":False}
+    except (OSError, ValueError, KeyError, TimeoutError) as exc:
+        raise HTTPException(503, "Kraken market feed temporarily unavailable") from exc
+
+@app.get("/api/kraken/candles")
+def kraken_candles(symbol: str = "BTC/USD", interval: int = 5):
+    try:
+        return {"source":"Kraken public OHLC", "symbol":symbol, "interval":interval, "candles":kraken.candles(symbol,interval)}
+    except ValueError as exc:
+        raise HTTPException(422,str(exc)) from exc
+    except (OSError, KeyError, TimeoutError) as exc:
+        raise HTTPException(503,"Kraken OHLC feed temporarily unavailable") from exc
+
+@app.get("/api/discovery")
+def discovery():
+    return {"status":"awaiting_authorized_trader_source", "verified_traders":[], "selected_traders":[], "max_traders":5, "requirements":{"sharpe_90d_gt":1.5,"max_drawdown_7d_gte":-0.10,"max_absolute_correlation_lt":0.9}, "note":"Kraken public trades are anonymous and cannot be attributed to individual lead traders. No trader ranking or copy trading is claimed."}
+
+# Virtual ledger: no exchange credentials or real-money execution code.
+from . import paper
+class PaperOrder(BaseModel):
+    symbol: str = "BTC/USD"
+    side: str = "BUY"
+    allocation_pct: float = Field(default=2, gt=0, le=2)
+    stop_loss_pct: float = Field(default=2, ge=0.1, le=10)
+    take_profit_pct: float = Field(default=4, ge=0.1, le=30)
+
+def paper_auth(token):
+    import hmac
+    secret=os.getenv("PAPER_ADMIN_TOKEN", "")
+    if not secret or not token or not hmac.compare_digest(secret,token):
+        raise HTTPException(401,"Set PAPER_ADMIN_TOKEN in Render and provide X-Paper-Token")
+
+@app.get('/api/paper/account')
+def paper_account():
+    try:
+        quotes=kraken.prices()
+        paper.check_stops(quotes)
+        return paper.snapshot(quotes)
+    except (OSError,ValueError,KeyError,TimeoutError) as exc:
+        raise HTTPException(503,"Kraken quotes unavailable; paper valuations not updated") from exc
+
+@app.post('/api/paper/order')
+def paper_order(payload:PaperOrder,x_paper_token:str|None=Header(default=None)):
+    paper_auth(x_paper_token)
+    try:
+        quotes=kraken.prices()
+        paper.check_stops(quotes)
+        return paper.order(payload.symbol,payload.side.upper(),payload.allocation_pct,payload.stop_loss_pct,payload.take_profit_pct,quotes)
+    except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+    except (OSError,KeyError,TimeoutError) as exc: raise HTTPException(503,"Kraken quotes unavailable") from exc
+
+# Virtual automation controls. Token never stored in the browser by the application.
+from . import auto
+
+@app.on_event("startup")
+def start_auto_worker():
+    auto.ensure_worker()
+
+@app.get('/api/auto/status')
+def auto_status():
+    return auto.status()
+
+@app.post('/api/auto/start')
+def auto_start(x_paper_token: str | None = Header(default=None)):
+    paper_auth(x_paper_token)
+    return auto.set_running(True)
+
+@app.post('/api/auto/stop')
+def auto_stop(x_paper_token: str | None = Header(default=None)):
+    paper_auth(x_paper_token)
+    return auto.set_running(False)
