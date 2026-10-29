@@ -19,3 +19,14 @@ This is **pool-flow following, not verified profitable-trader copy trading**. Th
 4. Press START on the dashboard. Open Traders & Wallets to inspect pool signals and reasons.
 
 **This is not the fully requested verified-wallet copy trader.** Do not treat it as one. There is no live-money execution code.
+
+## Consolidated V8.1 reliability audit
+- Solana `getBlock` now requests transaction version 1, with version-0 fallback for older providers. Some public RPC endpoints may still reject the request; use a compatible Solana provider if so.
+- Ethereum discovery excludes low-numbered system/precompile addresses. **Contract addresses can still be included**; discovery does not establish externally-owned wallet identity or profitability.
+- Pool scanner waits three Ethereum blocks before processing to reduce reorganization exposure. This is not a finality guarantee.
+- New persistent scanner diagnostics: latest confirmed block, scanned-through block, logs, valid swaps, executed paper fills, skipped swaps and last RPC error. Displayed under Traders & Wallets.
+- Existing wallet discovery and Kraken SMA/RSI automation remain. No new private keys required.
+- There is still **no verified-profitable-wallet ranking or true trader-specific copy engine**. This release does not claim otherwise.
+
+### Data and hosting constraints
+Render Free may sleep and erase ephemeral SQLite state. Public Ethereum endpoints can block `eth_getLogs` or limit requests. Production continuity requires an always-on worker and persistent storage. One web process/worker only; background thread is not a distributed scheduler. The signal strategy is experimental and not validated for profitability.

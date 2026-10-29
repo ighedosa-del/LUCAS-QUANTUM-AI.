@@ -12,6 +12,14 @@ def init():
     with paper.connection() as c:
         c.execute('CREATE TABLE IF NOT EXISTS copy_state (id INTEGER PRIMARY KEY CHECK(id=1), last_block INTEGER NOT NULL, last_trade REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'pending\', detail TEXT NOT NULL DEFAULT \'\')')
         c.execute('CREATE TABLE IF NOT EXISTS copy_signals (tx TEXT NOT NULL, log_index INTEGER NOT NULL, block INTEGER NOT NULL, side TEXT NOT NULL, eth_amount REAL NOT NULL, usdc_amount REAL NOT NULL, decision TEXT NOT NULL, detail TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY(tx,log_index))')
+        c.execute('CREATE TABLE IF NOT EXISTS copy_diagnostics (id INTEGER PRIMARY KEY CHECK(id=1), latest_block INTEGER, last_scan REAL, logs_seen INTEGER NOT NULL DEFAULT 0, valid_swaps INTEGER NOT NULL DEFAULT 0, executed INTEGER NOT NULL DEFAULT 0, rejected INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT \'\')')
+        c.execute('INSERT OR IGNORE INTO copy_diagnostics(id) VALUES(1)')
+        c.commit()
+
+def record_diagnostics(latest=None,logs=0,valid=0,executed=0,rejected=0,error=''):
+    init()
+    with paper.connection() as c:
+        c.execute('UPDATE copy_diagnostics SET latest_block=COALESCE(?,latest_block),last_scan=?,logs_seen=logs_seen+?,valid_swaps=valid_swaps+?,executed=executed+?,rejected=rejected+?,error=? WHERE id=1',(latest,time.time(),logs,valid,executed,rejected,str(error)[:250]))
         c.commit()
 
 def decode(log):
@@ -32,14 +40,19 @@ def poll():
     init()
     url=os.getenv('ETHEREUM_RPC_URL',ETH_RPC_DEFAULT)
     latest=int(rpc(url,'eth_blockNumber',[]),16)
+    # Wait for confirmations to reduce reorg-related false signals.
+    latest=max(0,latest-3)
     with paper.connection() as c: state=c.execute('SELECT * FROM copy_state WHERE id=1').fetchone()
     if state is None:
         # Never trade old events from before deployment.
         with paper.connection() as c:
             c.execute('INSERT INTO copy_state(id,last_block,status,detail) VALUES(1,?,?,?)',(latest,'primed','Initialized at current block; waiting for new swaps'));c.commit()
+        record_diagnostics(latest=latest)
         return {'status':'primed','processed':0,'executed':0}
     start=state['last_block']+1
-    if start>latest:return {'status':'up_to_date','processed':0,'executed':0}
+    if start>latest:
+        record_diagnostics(latest=latest)
+        return {'status':'up_to_date','processed':0,'executed':0}
     end=min(latest,start+19) # bounded provider load; catch up on subsequent polls
     logs=rpc(url,'eth_getLogs',[{'fromBlock':hex(start),'toBlock':hex(end),'address':POOL}])
     if not isinstance(logs,list):raise ValueError('Ethereum log query returned invalid data')
@@ -76,6 +89,7 @@ def poll():
             c.execute('INSERT OR IGNORE INTO copy_signals VALUES(?,?,?,?,?,?,?,?,?)',(tx,idx,int(log.get('blockNumber','0x0'),16),side,eth,usd,decision,detail,time.time()));c.commit()
     with paper.connection() as c:
         c.execute('UPDATE copy_state SET last_block=?,status=?,detail=? WHERE id=1',(end,'ok',f'Processed blocks {start}–{end}'));c.execute('DELETE FROM copy_signals WHERE rowid NOT IN (SELECT rowid FROM copy_signals ORDER BY created DESC LIMIT 500)');c.commit()
+    record_diagnostics(latest=latest,logs=len(logs),valid=processed,executed=executed,rejected=processed-executed)
     return {'status':'ok','processed':processed,'executed':executed,'last_block':end,'lag_blocks':latest-end}
 
 def snapshot():
@@ -83,4 +97,5 @@ def snapshot():
     with paper.connection() as c:
         state=c.execute('SELECT * FROM copy_state WHERE id=1').fetchone()
         rows=[dict(x) for x in c.execute('SELECT * FROM copy_signals ORDER BY block DESC,log_index DESC LIMIT 40')]
-    return {'strategy':'UNISWAP_V2_USDC_WETH_POOL_FLOW','mode':'PAPER_ONLY','execution_enabled':os.getenv('LUCAS_POOL_PAPER_COPY','0')=='1','status':dict(state) if state else {'status':'not_initialized'},'signals':rows,'verified_lead_traders':0,'solana_copy_enabled':False,'note':'Pool swaps are real public DEX events, not attributable to verified profitable lead traders. ETH/USD paper execution is optional and does not copy an identified wallet. No Solana copy execution.'}
+        diagnostics=dict(c.execute('SELECT * FROM copy_diagnostics WHERE id=1').fetchone())
+    return {'strategy':'UNISWAP_V2_USDC_WETH_POOL_FLOW','mode':'PAPER_ONLY','execution_enabled':os.getenv('LUCAS_POOL_PAPER_COPY','0')=='1','status':dict(state) if state else {'status':'not_initialized'},'signals':rows,'diagnostics':diagnostics,'verified_lead_traders':0,'solana_copy_enabled':False,'note':'Pool swaps are real public DEX events, not attributable to verified profitable lead traders. ETH/USD paper execution is optional and does not copy an identified wallet. No Solana copy execution.'}

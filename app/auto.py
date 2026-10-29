@@ -129,6 +129,7 @@ def _loop():
                     try:
                         copy_engine.poll()
                     except Exception as exc:
+                        copy_engine.record_diagnostics(error=str(exc))
                         log_event('POOL_ERROR','Ethereum pool signal feed: '+str(exc)[:160])
                     last_copy_poll=time.time()
                 if time.time()-last_discovery_poll>=600:

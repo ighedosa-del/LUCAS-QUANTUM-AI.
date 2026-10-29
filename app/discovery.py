@@ -1,5 +1,5 @@
 """Public-chain candidate discovery. Activity is NOT trading P&L or proof of profitable traders."""
-import os, time, json, urllib.request
+import os, time, json, urllib.request, re
 from . import paper
 from .wallets import ETH_RE, SOL_RE
 ETH_RPC_DEFAULT='https://ethereum-rpc.publicnode.com'
@@ -27,13 +27,22 @@ def ethereum_candidates():
         if isinstance(tx,dict):
             for k in ('from','to'):
                 a=tx.get(k)
-                if isinstance(a,str) and ETH_RE.fullmatch(a):seen.add(a.lower())
+                if isinstance(a,str) and ETH_RE.fullmatch(a) and int(a,16)>65535:seen.add(a.lower())
     return sorted(seen)[:350]
 
 def solana_candidates():
     url=os.getenv('SOLANA_RPC_URL',SOL_RPC_DEFAULT)
     slot=rpc(url,'getSlot',[{'commitment':'finalized'}])
-    block=rpc(url,'getBlock',[slot,{'encoding':'jsonParsed','transactionDetails':'full','rewards':False,'maxSupportedTransactionVersion':0}])
+    # Some mainnet transactions use version 1; request version 1 and retry with
+    # version 0 only when a provider does not support that configuration.
+    params={'encoding':'jsonParsed','transactionDetails':'full','rewards':False,'maxSupportedTransactionVersion':1}
+    try:
+        block=rpc(url,'getBlock',[slot,params])
+    except ValueError as exc:
+        if 'version' not in str(exc).lower(): raise
+        params['maxSupportedTransactionVersion']=0
+        # Older providers may still reject v1 blocks; report actionable diagnostics.
+        block=rpc(url,'getBlock',[slot,params])
     if not isinstance(block,dict):raise ValueError('Solana finalized block unavailable (provider may restrict getBlock)')
     seen=set()
     for tx in block.get('transactions',[])[:120]:
