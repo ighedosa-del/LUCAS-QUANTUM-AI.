@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: lucas-quantum-ai-v2
+    name: copytrade-paper-bot
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
