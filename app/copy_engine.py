@@ -6,7 +6,8 @@ import os, time
 from . import paper, kraken
 from .discovery import rpc, ETH_RPC_DEFAULT
 POOL='0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc'  # Uniswap V2 USDC/WETH
-SWAP_PREFIX='0xd78ad95fa46c994b6551d0da85fc275fe613d'
+SWAP_TOPIC='0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822'
+SWAP_PREFIX=SWAP_TOPIC
 
 def init():
     with paper.connection() as c:
@@ -14,17 +15,23 @@ def init():
         c.execute('CREATE TABLE IF NOT EXISTS copy_signals (tx TEXT NOT NULL, log_index INTEGER NOT NULL, block INTEGER NOT NULL, side TEXT NOT NULL, eth_amount REAL NOT NULL, usdc_amount REAL NOT NULL, decision TEXT NOT NULL, detail TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY(tx,log_index))')
         c.execute('CREATE TABLE IF NOT EXISTS copy_diagnostics (id INTEGER PRIMARY KEY CHECK(id=1), latest_block INTEGER, last_scan REAL, logs_seen INTEGER NOT NULL DEFAULT 0, valid_swaps INTEGER NOT NULL DEFAULT 0, executed INTEGER NOT NULL DEFAULT 0, rejected INTEGER NOT NULL DEFAULT 0, error TEXT NOT NULL DEFAULT \'\')')
         c.execute('INSERT OR IGNORE INTO copy_diagnostics(id) VALUES(1)')
+        cols={r['name'] for r in c.execute('PRAGMA table_info(copy_diagnostics)')}
+        for name in ('raw_logs','swap_events','decode_rejected','below_threshold','disabled','risk_rejected','duplicate_events'):
+            if name not in cols:c.execute(f'ALTER TABLE copy_diagnostics ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0')
         c.commit()
 
-def record_diagnostics(latest=None,logs=0,valid=0,executed=0,rejected=0,error=''):
+def record_diagnostics(latest=None,logs=0,valid=0,executed=0,rejected=0,error='',**extra):
     init()
     with paper.connection() as c:
         c.execute('UPDATE copy_diagnostics SET latest_block=COALESCE(?,latest_block),last_scan=?,logs_seen=logs_seen+?,valid_swaps=valid_swaps+?,executed=executed+?,rejected=rejected+?,error=? WHERE id=1',(latest,time.time(),logs,valid,executed,rejected,str(error)[:250]))
+        for name,value in extra.items():
+            if name in ('raw_logs','swap_events','decode_rejected','below_threshold','disabled','risk_rejected','duplicate_events'):
+                c.execute(f'UPDATE copy_diagnostics SET {name}={name}+? WHERE id=1',(int(value),))
         c.commit()
 
 def decode(log):
     topics=log.get('topics') or []
-    if not topics or not str(topics[0]).lower().startswith(SWAP_PREFIX):return None
+    if len(topics)!=3 or str(topics[0]).lower()!=SWAP_TOPIC:return None
     data=str(log.get('data',''))
     if not data.startswith('0x') or len(data)!=258:return None
     try: a=[int(data[2+i*64:2+(i+1)*64],16) for i in range(4)]
@@ -54,19 +61,30 @@ def poll():
         record_diagnostics(latest=latest)
         return {'status':'up_to_date','processed':0,'executed':0}
     end=min(latest,start+19) # bounded provider load; catch up on subsequent polls
-    logs=rpc(url,'eth_getLogs',[{'fromBlock':hex(start),'toBlock':hex(end),'address':POOL}])
+    # Filter by the FULL keccak256 Swap event signature, not all Sync/Mint/Burn logs.
+    logs=rpc(url,'eth_getLogs',[{'fromBlock':hex(start),'toBlock':hex(end),'address':POOL,'topics':[SWAP_TOPIC]}])
     if not isinstance(logs,list):raise ValueError('Ethereum log query returned invalid data')
+    if len(logs)>250:
+        raise ValueError('Provider returned >250 swaps for a bounded block range; refusing to advance cursor and lose signals')
     processed=executed=0
-    for log in logs[:250]:
+    counters={'raw_logs':len(logs),'swap_events':0,'decode_rejected':0,'below_threshold':0,'disabled':0,'risk_rejected':0,'duplicate_events':0}
+    for log in logs:
+        if str((log.get('topics') or [''])[0]).lower()==SWAP_TOPIC:counters['swap_events']+=1
         parsed=decode(log)
-        if not parsed:continue
+        if not parsed:
+            counters['decode_rejected']+=1
+            continue
         side,eth,usd=parsed;tx=log.get('transactionHash','');idx=int(log.get('logIndex','0x0'),16)
         with paper.connection() as c:
-            if c.execute('SELECT 1 FROM copy_signals WHERE tx=? AND log_index=?',(tx,idx)).fetchone():continue
+            if c.execute('SELECT 1 FROM copy_signals WHERE tx=? AND log_index=?',(tx,idx)).fetchone():
+                counters['duplicate_events']+=1
+                continue
         processed+=1;decision='SKIPPED';detail=''
         # Restrict to substantial, interpretable pool swaps; avoid tiny/noisy trades.
-        if usd<25000:detail='Pool swap below $25,000 notional threshold'
-        elif os.getenv('LUCAS_POOL_PAPER_COPY','0')!='1':detail='Pool-follow paper execution disabled by default'
+        if usd<25000:
+            detail='Pool swap below $25,000 notional threshold';counters['below_threshold']+=1
+        elif os.getenv('LUCAS_POOL_PAPER_COPY','0')!='1':
+            detail='Pool-follow paper execution disabled by default';counters['disabled']+=1
         else:
             try:
                 quotes=kraken.prices();paper.check_stops(quotes)
@@ -85,11 +103,12 @@ def poll():
                             with paper.connection() as c:c.execute('UPDATE copy_state SET last_trade=? WHERE id=1',(time.time(),));c.commit()
                             executed+=1
             except (ValueError,OSError,KeyError,TimeoutError) as exc:detail='Quote or risk check failed: '+str(exc)[:130]
+        if decision!='PAPER_EXECUTED' and usd>=25000 and os.getenv('LUCAS_POOL_PAPER_COPY','0')=='1':counters['risk_rejected']+=1
         with paper.connection() as c:
             c.execute('INSERT OR IGNORE INTO copy_signals VALUES(?,?,?,?,?,?,?,?,?)',(tx,idx,int(log.get('blockNumber','0x0'),16),side,eth,usd,decision,detail,time.time()));c.commit()
     with paper.connection() as c:
         c.execute('UPDATE copy_state SET last_block=?,status=?,detail=? WHERE id=1',(end,'ok',f'Processed blocks {start}–{end}'));c.execute('DELETE FROM copy_signals WHERE rowid NOT IN (SELECT rowid FROM copy_signals ORDER BY created DESC LIMIT 500)');c.commit()
-    record_diagnostics(latest=latest,logs=len(logs),valid=processed,executed=executed,rejected=processed-executed)
+    record_diagnostics(latest=latest,logs=len(logs),valid=processed,executed=executed,rejected=processed-executed,**counters)
     return {'status':'ok','processed':processed,'executed':executed,'last_block':end,'lag_blocks':latest-end}
 
 def snapshot():
