@@ -97,3 +97,31 @@ def check_stops(prices):
             try: triggered.append(order(p["symbol"],"SELL",2,1,2,prices,reason))
             except ValueError:pass
     return triggered
+
+
+def performance():
+    """Realized, fee-inclusive trade analytics. No fabricated or mark-to-market returns."""
+    with LOCK, connection() as con:
+        fills=[dict(r) for r in con.execute('SELECT * FROM fills ORDER BY id ASC')]
+        cash=con.execute('SELECT cash,initial FROM account WHERE id=1').fetchone()
+        positions=[dict(r) for r in con.execute('SELECT symbol,quantity,entry,cost,stop,target FROM positions')]
+    closed=[f for f in fills if f['side']=='SELL']
+    pnls=[float(f['pnl'] or 0) for f in closed]
+    wins=sum(v>0 for v in pnls)
+    gross_profit=sum(max(v,0) for v in pnls)
+    gross_loss=-sum(min(v,0) for v in pnls)
+    curve=[0.0];running=0.0
+    for pnl in pnls:
+        running+=pnl;curve.append(round(running,6))
+    peak=curve[0];max_dd=0.0
+    for v in curve:
+        peak=max(peak,v);max_dd=max(max_dd,peak-v)
+    return {'mode':'PAPER_ONLY','total_orders':len(fills),'completed_round_trips':len(closed),
+        'open_positions':len(positions),'realized_pnl_after_fees':round(sum(pnls),4),
+        'total_fees':round(sum(float(f['fee']) for f in fills),4),
+        'win_rate_pct':round(100*wins/len(closed),2) if closed else None,
+        'profit_factor':round(gross_profit/gross_loss,3) if gross_loss else None,
+        'realized_drawdown_usd':round(max_dd,4),
+        'realized_pnl_curve':curve[-101:], 'cash':cash['cash'],
+        'initial_cash':cash['initial'],
+        'note':'Realized P&L includes buy/sell fees. Drawdown is based on closed-trade realized P&L only, not intratrade equity.'}

@@ -3,7 +3,7 @@ This is pool-flow following, NOT verified profitable-wallet copy trading.
 Solana swap classification and trader ranking remain disabled.
 """
 import os, time
-from . import paper, kraken
+from . import paper, kraken, feed
 from .discovery import rpc, ETH_RPC_DEFAULT
 POOL='0xB4e16d0168e52d35CaCD2c6185b44281Ec28C9Dc'  # Uniswap V2 USDC/WETH
 SWAP_TOPIC='0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822'
@@ -102,7 +102,7 @@ def poll():
             detail='Pool-follow paper execution disabled by default';counters['disabled']+=1
         else:
             try:
-                quotes=kraken.prices();paper.check_stops(quotes)
+                quotes=feed.fresh_quotes(("ETH/USD",));paper.check_stops(quotes)
                 with paper.connection() as c:
                     last=c.execute('SELECT last_trade FROM copy_state WHERE id=1').fetchone()[0]
                 if time.time()-last<1800:detail='30-minute paper execution cooldown'

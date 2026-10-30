@@ -1,6 +1,6 @@
 """Autonomous virtual-only Kraken strategy; never submits exchange orders."""
 import os, sqlite3, threading, time, math
-from . import kraken, paper, wallets, discovery, copy_engine
+from . import kraken, paper, wallets, discovery, copy_engine, feed
 
 INTERVAL_SECONDS = 65
 _lock = threading.RLock()
@@ -83,7 +83,7 @@ def tick():
         if not candles:return
         bar=str(candles[-1]['time'])
         if bar==s['last_bar']:return
-        prices=kraken.prices()
+        prices=feed.fresh_quotes(("BTC/USD",))
         if 'BTC/USD' not in prices:raise ValueError('Kraken BTC/USD quote unavailable')
         paper.check_stops(prices)
         account=paper.snapshot(prices)

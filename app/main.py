@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 import numpy as np
 import pandas as pd
 from .core import Trader, select_traders, simulate
-from . import kraken
+from . import kraken, feed
 
 app = FastAPI(title="CopyTrade Lab", version="0.1.0")
 BASE = Path(__file__).resolve().parent
@@ -91,7 +91,7 @@ def backtest(payload: BacktestRequest):
 @app.get("/api/kraken/markets")
 def kraken_markets():
     try:
-        return {"source":"Kraken public market API", "markets":kraken.prices(), "trader_identity_available":False}
+        return {"source":"Kraken public market API", "markets":feed.fresh_quotes(), "trader_identity_available":False}
     except (OSError, ValueError, KeyError, TimeoutError) as exc:
         raise HTTPException(503, "Kraken market feed temporarily unavailable") from exc
 
@@ -126,20 +126,20 @@ def paper_auth(token):
 @app.get('/api/paper/account')
 def paper_account():
     try:
-        quotes=kraken.prices()
+        quotes=feed.fresh_quotes()
         paper.check_stops(quotes)
         return paper.snapshot(quotes)
     except (OSError,ValueError,KeyError,TimeoutError) as exc:
-        raise HTTPException(503,"Kraken quotes unavailable; paper valuations not updated") from exc
+        return paper.snapshot({}) | {"valuation_status":"unavailable", "valuation_error":"Live Kraken quotes unavailable; marks are withheld, recorded history remains available"}
 
 @app.post('/api/paper/order')
 def paper_order(payload:PaperOrder,x_paper_token:str|None=Header(default=None)):
     paper_auth(x_paper_token)
     try:
-        quotes=kraken.prices()
+        quotes=feed.fresh_quotes((payload.symbol,))
         paper.check_stops(quotes)
         return paper.order(payload.symbol,payload.side.upper(),payload.allocation_pct,payload.stop_loss_pct,payload.take_profit_pct,quotes)
-    except ValueError as exc: raise HTTPException(422,str(exc)) from exc
+    except ValueError as exc: raise HTTPException(503 if "Fresh Kraken quotes unavailable" in str(exc) else 422,str(exc)) from exc
     except (OSError,KeyError,TimeoutError) as exc: raise HTTPException(503,"Kraken quotes unavailable") from exc
 
 # Virtual automation controls. Token never stored in the browser by the application.
@@ -199,3 +199,11 @@ def copy_status():
 def copy_refresh(x_paper_token: str | None = Header(default=None)):
     paper_auth(x_paper_token)
     return copy_engine.poll()
+
+@app.get('/api/feed/status')
+def feed_status():
+    return feed.status()
+
+@app.get('/api/paper/performance')
+def paper_performance():
+    return paper.performance()

@@ -23,3 +23,15 @@ Extract into existing GitHub project and redeploy on Render. Retain `PAPER_ADMIN
 The previous fixed $25,000 minimum is now configurable with `LUCAS_POOL_MIN_SWAP_USD` (default **5000**). The variable must be between **1000 and 1000000**; invalid settings are rejected rather than silently permitting unfiltered trades. The live `/api/copy/status` endpoint returns `minimum_swap_usd`, and Traders & Wallets shows the current minimum and below-threshold count. **No past swaps are back-traded or retroactively reclassified.** Previously skipped signals remain in the historical audit log.
 
 To deploy: replace your existing project files with this ZIP and redeploy. Keep `LUCAS_POOL_PAPER_COPY=1` for optional pool-flow PAPER orders; otherwise signals are only observed. You may optionally set `LUCAS_POOL_MIN_SWAP_USD=5000` in Render, but it is already the default. No wallets, API keys or private exchange credentials required. The 30-minute cooldown, 1% per-flow allocation, position checks, stop/target, 5% drawdown breaker, and paper-only broker remain unchanged. This is an **experimental threshold**, not an empirically optimized trading strategy. More signals can increase losses. A swap signal is not a verified profitable trader.
+
+## V8.4 — feed recovery and recorded performance
+- All automated BTC/USD and Ethereum pool-flow paper entries now pass through `app.feed.fresh_quotes()` (Kraken quotes, retry with short exponential backoff, validation, fail closed). The existing Kraken quote cache expires after 20 seconds; expired quotes are never returned as a fallback.
+- During quote outages, no new paper orders are attempted. Existing history and positions remain readable via `/api/paper/account`, with null live marks/equity and `valuation_status=unavailable` rather than invented prices.
+- `/api/feed/status` shows recent success/failure and whether fresh-price order checks are available. A subsequent successful request restores the feed status automatically; it does not bypass order validation.
+- `/api/paper/performance` computes realized fee-inclusive P&L, trade count, win rate, profit factor, and realized-only closed-trade drawdown from SQLite fills. It does NOT claim full mark-to-market drawdown or prove profitability.
+- Portfolio page now includes these diagnostics and performance metrics.
+- Existing Render settings are unchanged: `LUCAS_POOL_PAPER_COPY=1`, optional `LUCAS_POOL_MIN_SWAP_USD=5000`, and existing `PAPER_ADMIN_TOKEN`.
+- The process still requires an awake Render instance and persistent SQLite disk for durable operation; Render Free may sleep or reset data. No live trading capability is introduced.
+
+### Deployment
+Extract this ZIP over the current GitHub project and redeploy on Render. No new secrets or wallets required. Verify `/api/feed/status` and `/api/paper/performance`, then view the Portfolio tab. 51 local automated tests passed; production RPC reliability and strategy profitability are not established by these tests.
